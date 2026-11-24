@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#6d28d9" />
+  <title>Revisor de circuitos</title>
+  <style>
+    :root {
+      --bg: #f4f6fb;
+      --surface: #ffffff;
+      --surface-2: #eef2f9;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #cbd5e1;
+      --grad-header: linear-gradient(135deg, #6d28d9 0%, #06b6d4 100%);
+      --grad-btn-primary: linear-gradient(135deg, #2563eb 0%, #06b6d4 100%);
+      --grad-btn-watch: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+      --grad-btn-photo: linear-gradient(135deg, #ea580c 0%, #ef4444 100%);
+      --ok-bg: #dcfce7;
+      --ok-border: #16a34a;
+      --ok-text: #14532d;
+      --err-bg: #ffe4e6;
+      --err-border: #e11d48;
+      --err-text: #881337;
+      --warn-bg: #fef9c3;
+      --warn-border: #eab308;
+      --warn-text: #713f12;
+      --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      --radius: 16px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #090d16;
+        --surface: #111827;
+        --surface-2: #1e293b;
+        --text: #f8fafc;
+        --muted: #94a3b8;
+        --border: #334155;
+        --ok-bg: rgba(22, 163, 74, 0.2);
+        --ok-border: #22c55e;
+        --ok-text: #bbf7d0;
+        --err-bg: rgba(225, 29, 72, 0.22);
+        --err-border: #fb7185;
+        --err-text: #fecdd3;
+        --warn-bg: rgba(234, 179, 8, 0.2);
+        --warn-border: #facc15;
+        --warn-text: #fef08a;
+        --shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+      }
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding-bottom: calc(24px + var(--safe-bottom));
+      line-height: 1.4;
+    }
+
+    header {
+      background: var(--grad-header);
+      color: #ffffff;
+      padding: calc(16px + var(--safe-top)) 16px 18px;
+      box-shadow: var(--shadow);
+    }
+
+    .header-inner {
+      max-width: 680px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    h1 { margin: 0; font-size: 1.35rem; font-weight: 800; letter-spacing: -0.02em; }
+    .sub { margin: 2px 0 0; font-size: 0.85rem; opacity: 0.92; }
+
+    .code-btn {
+      background: rgba(255, 255, 255, 0.2);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      min-height: 40px;
+    }
+
+    main {
+      max-width: 680px;
+      margin: 14px auto 0;
+      padding: 0 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      box-shadow: var(--shadow);
+    }
+
+    label.field-label { display: block; font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 12px;
+      border: 1.5px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 1rem;
+      min-height: 46px;
+    }
+
+    input[type="text"]:focus { outline: none; border-color: #06b6d4; }
+
+    .diagram-box {
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      text-align: center;
+      background: var(--surface-2);
+      cursor: pointer;
+    }
+
+    .diagram-preview { max-height: 160px; max-width: 100%; border-radius: 10px; display: none; margin: 8px auto 0; }
+    .diagram-preview.visible { display: block; }
+
+    .clear-link {
+      margin-top: 8px;
+      background: transparent;
+      border: none;
+      color: #e11d48;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: none;
+    }
+    .clear-link.visible { display: inline-block; }
+
+    .camera-wrap {
+      position: relative;
+      background: #020617;
+      border-radius: 14px;
+      overflow: hidden;
+      aspect-ratio: 4 / 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    video, .snap-img { width: 100%; height: 100%; object-fit: cover; display: none; }
+    video.active, .snap-img.active { display: block; }
+
+    .cam-placeholder { color: #cbd5e1; text-align: center; padding: 16px; font-size: 0.95rem; }
+
+    .live-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(220, 38, 38, 0.92);
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.78rem;
+      padding: 5px 10px;
+      border-radius: 999px;
+      display: none;
+      align-items: center;
+      gap: 6px;
+    }
+    .live-badge.active { display: inline-flex; }
+
+    .status-overlay {
+      position: absolute;
+      bottom: 10px;
+      left: 10px;
+      right: 10px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      font-weight: 800;
+      font-size: 0.92rem;
+      display: none;
+      backdrop-filter: blur(6px);
+    }
+    .status-overlay.visible { display: block; }
+
+    .cam-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+    .action-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 12px; }
+
+    @media (min-width: 520px) {
+      .action-grid { grid-template-columns: 1fr 1fr; }
+      .btn-full-mobile { grid-column: 1 / -1; }
+    }
+
+    button.btn {
+      border: none;
+      border-radius: 14px;
+      padding: 13px 16px;
+      font-size: 1rem;
+      font-weight: 800;
+      color: #ffffff;
+      cursor: pointer;
+      min-height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+    }
+
+    button.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--text) !important;
+      border: 1.5px solid var(--border) !important;
+      box-shadow: none !important;
+    }
+
+    .btn-check { background: var(--grad-btn-primary); }
+    .btn-watch { background: var(--grad-btn-watch); }
+    .btn-photo { background: var(--grad-btn-photo); }
+
+    .banner { border-radius: 14px; padding: 14px; border: 2px solid transparent; display: none; }
+    .banner.visible { display: block; }
+    .banner.ok { background: var(--ok-bg); border-color: var(--ok-border); color: var(--ok-text); }
+    .banner.fallas { background: var(--err-bg); border-color: var(--err-border); color: var(--err-text); }
+    .banner.dudoso { background: var(--warn-bg); border-color: var(--warn-border); color: var(--warn-text); }
+
+    .banner-title { font-size: 1.25rem; font-weight: 900; margin: 0 0 4px; }
+    .banner-summary { font-size: 1rem; font-weight: 600; margin: 0; }
+
+    .fault-card {
+      background: var(--err-bg);
+      border: 1.5px solid var(--err-border);
+      color: var(--err-text);
+      border-radius: 14px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+
+    .fault-head { font-weight: 800; font-size: 1rem; margin-bottom: 4px; }
+    .fault-meta { font-size: 0.92rem; margin-top: 4px; }
+
+    .good-line {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--ok-bg);
+      color: var(--ok-text);
+      border: 1px solid var(--ok-border);
+      font-weight: 600;
+      font-size: 0.92rem;
+      display: none;
+    }
+    .good-line.visible { display: block; }
+
+    .photo-tip {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: var(--warn-bg);
+      color: var(--warn-text);
+      border: 1px solid var(--warn-border);
+      font-weight: 600;
+      font-size: 0.92rem;
+      display: none;
+    }
+    .photo-tip.visible { display: block; }
+
+    .error-box {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--err-bg);
+      color: var(--err-text);
+      border: 1.5px solid var(--err-border);
+      font-weight: 700;
+      display: none;
+    }
+    .error-box.visible { display: block; }
+
+    .qa-row { display: flex; gap: 8px; margin-top: 8px; }
+
+    .qa-answer {
+      margin-top: 10px;
+      padding: 12px;
+      border-radius: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      font-size: 0.95rem;
+      display: none;
+    }
+    .qa-answer.visible { display: block; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(2, 6, 23, 0.65);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 50;
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px;
+      width: 100%;
+      max-width: 400px;
+      box-shadow: var(--shadow);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div>
+        <h1>⚡ Revisor de circuitos</h1>
+        <p class="sub">Revisión rápida con cámara y Gemini</p>
+      </div>
+      <button type="button" class="code-btn" id="openCodeBtn">🔑 Código</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="card">
+      <label class="field-label" for="practiceTitle">📝 Título de la práctica</label>
+      <input id="practiceTitle" type="text" placeholder="Ej. Amplificador inversor con LM741" autocomplete="off" />
+    </section>
+
+    <section class="card">
+      <label class="field-label">📐 Diagrama (opcional)</label>
+      <div class="diagram-box" id="diagramDrop">
+        <div id="diagramPrompt">Toca aquí para subir el diagrama del circuito</div>
+        <img id="diagramPreview" class="diagram-preview" alt="Vista previa del diagrama" />
+        <button type="button" class="clear-link" id="clearDiagramBtn">✕ Quitar diagrama</button>
+      </div>
+      <input id="diagramInput" type="file" accept="image/*" hidden />
+    </section>
+
+    <section class="card">
+      <div class="camera-wrap">
+        <video id="videoEl" autoplay playsinline muted></video>
+        <img id="snapPreview" class="snap-img" alt="Captura del circuito" />
+        <div id="camPlaceholder" class="cam-placeholder">Enciende la cámara o toma una foto de tu circuito armado</div>
+        <div id="liveBadge" class="live-badge">● EN VIVO</div>
+        <div id="statusOverlay" class="status-overlay"></div>
+      </div>
+
+      <div class="cam-controls">
+        <button type="button" class="btn btn-secondary" id="toggleCamBtn">📷 Encender cámara</button>
+        <button type="button" class="btn btn-secondary" id="switchCamBtn" disabled>🔄 Girar cámara</button>
+      </div>
+
+      <div class="action-grid">
+        <button type="button" class="btn btn-check" id="checkNowBtn">🔍 Revisar ahora</button>
+        <button type="button" class="btn btn-watch" id="watchLiveBtn">👁️ Vigilar en vivo</button>
+        <button type="button" class="btn btn-photo btn-full-mobile" id="takePhotoBtn">📸 Tomar foto</button>
+      </div>
+      <input id="nativePhotoInput" type="file" accept="image/*" capture="environment" hidden />
+
+      <div id="errorBox" class="error-box"></div>
+    </section>
+
+    <section class="card" id="resultSection">
+      <div id="resultBanner" class="banner">
+        <p id="resultHeadline" class="banner-title"></p>
+        <p id="resultSummary" class="banner-summary"></p>
+      </div>
+      <div id="faultsContainer"></div>
+      <div id="goodLine" class="good-line"></div>
+      <div id="photoTip" class="photo-tip"></div>
+    </section>
+
+    <section class="card">
+      <label class="field-label" for="questionInput">💬 ¿Dudas? Pregunta aquí</label>
+      <div class="qa-row">
+        <input id="questionInput" type="text" placeholder="Ej. ¿Cuál pin es VCC en este chip?" autocomplete="off" />
+        <button type="button" class="btn btn-check" id="askBtn">Enviar</button>
+      </div>
+      <div id="qaAnswer" class="qa-answer"></div>
+    </section>
+  </main>
+
+  <div class="modal-backdrop" id="codeModal">
+    <div class="modal">
+      <h2 style="margin:0 0 8px;font-size:1.1rem;">🔑 Código de acceso</h2>
+      <p style="margin:0 0 12px;font-size:0.9rem;color:var(--muted);">
+        Si tu profesor o servidor configuró un código, escríbelo aquí. Si no, déjalo vacío.
+      </p>
+      <input id="accessCodeInput" type="text" placeholder="Código de acceso (opcional)" />
+      <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+        <button type="button" class="btn btn-secondary" id="closeCodeBtn">Cerrar</button>
+        <button type="button" class="btn btn-check" id="saveCodeBtn">Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const state = {
+      stream: null,
+      facingMode: 'environment',
+      diagramBase64: null,
+      lastCircuitBase64: null,
+      lastAnalysis: null,
+      watchTimer: null,
+      isAnalyzing: false
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function getAccessCode() { return sessionStorage.getItem('revisor_access_code') || ''; }
+    function setAccessCode(code) {
+      if (code) sessionStorage.setItem('revisor_access_code', code.trim());
+      else sessionStorage.removeItem('revisor_access_code');
+    }
+
+    function showError(msg) {
+      const box = $('errorBox');
+      box.textContent = msg;
+      box.classList.toggle('visible', Boolean(msg));
+    }
+
+    function stopCamera() {
+      stopWatchLoop();
+      if (state.stream) {
+        state.stream.getTracks().forEach((t) => t.stop());
+        state.stream = null;
+      }
+      const video = $('videoEl');
+      video.srcObject = null;
+      video.classList.remove('active');
+      $('liveBadge').classList.remove('active');
+      $('switchCamBtn').disabled = true;
+      $('toggleCamBtn').textContent = '📷 Encender cámara';
+      if (!$('snapPreview').classList.contains('active')) {
+        $('camPlaceholder').style.display = 'block';
+      }
+    }
+
+    async function startCamera() {
+      showError('');
+      stopCamera();
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Tu navegador no soporta cámara en vivo. Usa "Tomar foto".');
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: state.facingMode } },
+          audio: false
+        });
+        state.stream = stream;
+        const video = $('videoEl');
+        video.srcObject = stream;
+        await video.play();
+        video.classList.add('active');
+        $('snapPreview').classList.remove('active');
+        $('camPlaceholder').style.display = 'none';
+        $('liveBadge').classList.add('active');
+        $('switchCamBtn').disabled = false;
+        $('toggleCamBtn').textContent = '⏹️ Apagar cámara';
+      } catch (err) {
+        const isDenied = err?.name === 'NotAllowedError' || err?.name === 'PermissionDeniedError';
+        showError(
+          isDenied
+            ? 'Permiso de cámara denegado. Actívalo en el navegador o usa "Tomar foto".'
+            : `No se pudo iniciar la cámara: ${err.message || 'error desconocido'}`
+        );
+      }
+    }
+
+    function compressSourceToJpeg(sourceEl, maxSide = 1280, quality = 0.82) {
+      const srcW = sourceEl.videoWidth || sourceEl.naturalWidth || sourceEl.width;
+      const srcH = sourceEl.videoHeight || sourceEl.naturalHeight || sourceEl.height;
+      if (!srcW || !srcH) return null;
+      const scale = Math.min(1, maxSide / Math.max(srcW, srcH));
+      const dstW = Math.max(1, Math.round(srcW * scale));
+      const dstH = Math.max(1, Math.round(srcH * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = dstW;
+      canvas.height = dstH;
+      canvas.getContext('2d').drawImage(sourceEl, 0, 0, dstW, dstH);
+      return canvas.toDataURL('image/jpeg', quality).split(',')[1] || null;
+    }
+
+    function fileToCompressedJpeg(file, maxSide = 1280, quality = 0.82) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => {
+            const b64 = compressSourceToJpeg(img, maxSide, quality);
+            if (!b64) return reject(new Error('No se pudo procesar la imagen.'));
+            resolve({ base64: b64, dataUrl: 'data:image/jpeg;base64,' + b64 });
+          };
+          img.onerror = () => reject(new Error('Archivo de imagen inválido.'));
+          img.src = reader.result;
+        };
+        reader.onerror = () => reject(new Error('Error al leer el archivo.'));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function getCurrentCircuitBase64() {
+      const video = $('videoEl');
+      if (state.stream && video.classList.contains('active')) {
+        return compressSourceToJpeg(video, 1280, 0.82);
+      }
+      const snap = $('snapPreview');
+      if (snap.classList.contains('active') && snap.src.startsWith('data:image/')) {
+        return snap.src.split(',')[1] || null;
+      }
+      return null;
+    }
+
+    function updateOverlayStatus(parsed) {
+      const ov = $('statusOverlay');
+      if (!parsed) { ov.classList.remove('visible'); return; }
+      const count = Array.isArray(parsed.fallas) ? parsed.fallas.length : 0;
+      let label = '🤔 No estoy seguro';
+      let bg = 'rgba(234, 179, 8, 0.92)';
+      let color = '#1e293b';
+      if (parsed.estado === 'ok') {
+        label = '✅ Bien'; bg = 'rgba(22, 163, 74, 0.92)'; color = '#ffffff';
+      } else if (parsed.estado === 'fallas') {
+        label = `⚠️ ${count || 1} ${count === 1 ? 'falla' : 'fallas'}`; bg = 'rgba(225, 29, 72, 0.92)'; color = '#ffffff';
+      }
+      ov.textContent = `${label} — ${parsed.resumen || ''}`;
+      ov.style.background = bg;
+      ov.style.color = color;
+      ov.classList.add('visible');
+    }
+
+    function renderAnalysis(parsed) {
+      state.lastAnalysis = parsed;
+      const banner = $('resultBanner');
+      const headline = $('resultHeadline');
+      const summary = $('resultSummary');
+      const faultsContainer = $('faultsContainer');
+      const goodLine = $('goodLine');
+      const photoTip = $('photoTip');
+
+      faultsContainer.innerHTML = '';
+      goodLine.textContent = '';
+      goodLine.classList.remove('visible');
+      photoTip.textContent = '';
+      photoTip.classList.remove('visible');
+
+      const estado = ['ok', 'fallas', 'dudoso'].includes(parsed?.estado) ? parsed.estado : 'dudoso';
+      const fallas = Array.isArray(parsed?.fallas) ? parsed.fallas.slice(0, 5) : [];
+
+      banner.className = `banner visible ${estado}`;
+      if (estado === 'ok') headline.textContent = '✅ ¡Se ve bien!';
+      else if (estado === 'fallas') {
+        const n = fallas.length || 1;
+        headline.textContent = `⚠️ ${n} ${n === 1 ? 'falla' : 'fallas'}`;
+      } else headline.textContent = '🤔 No estoy seguro';
+      summary.textContent = String(parsed?.resumen || '');
+
+      fallas.forEach((f, idx) => {
+        const card = document.createElement('div');
+        card.className = 'fault-card';
+        const head = document.createElement('div');
+        head.className = 'fault-head';
+        head.textContent = `#${idx + 1} ${String(f?.que || 'Falla detectada')}`;
+        const where = document.createElement('div');
+        where.className = 'fault-meta';
+        where.textContent = `📍 ${String(f?.donde || 'Ubicación no especificada')}`;
+        const fix = document.createElement('div');
+        fix.className = 'fault-meta';
+        fix.textContent = `🔧 ${String(f?.arreglo || 'Revisa la conexión')}`;
+        card.appendChild(head);
+        card.appendChild(where);
+        card.appendChild(fix);
+        faultsContainer.appendChild(card);
+      });
+
+      const bien = Array.isArray(parsed?.bien) ? parsed.bien.slice(0, 3).filter(Boolean) : [];
+      if (bien.length > 0) {
+        goodLine.textContent = `👍 ${bien.join(' · ')}`;
+        goodLine.classList.add('visible');
+      }
+
+      const foto = String(parsed?.foto || '').trim();
+      if (foto) {
+        photoTip.textContent = `📷 Mejora la foto: ${foto}`;
+        photoTip.classList.add('visible');
+      }
+
+      updateOverlayStatus(parsed);
+    }
+
+    function parseModelJson(rawText) {
+      const cleaned = String(rawText || '')
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '')
+        .trim();
+      return JSON.parse(cleaned);
+    }
+
+    async function callAnalyzeApi(promptText, imagesList) {
+      const headers = { 'Content-Type': 'application/json' };
+      const code = getAccessCode();
+      if (code) headers['x-code'] = code;
+
+      const res = await fetch('/api/analyze', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ prompt: promptText, images: imagesList })
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 401) {
+        $('codeModal').classList.add('open');
+        throw new Error(data.error || 'Código de acceso requerido o inválido.');
+      }
+      if (res.status === 429) {
+        const err = new Error(data.error || 'Límite de uso alcanzado (HTTP 429).');
+        err.isRateLimit = true;
+        throw err;
+      }
+      if (!res.ok) throw new Error(data.error || `Error del servidor (${res.status}).`);
+      return data.text;
+    }
+
+    async function runCircuitReview() {
+      if (state.isAnalyzing) return;
+      showError('');
+      const circuitB64 = getCurrentCircuitBase64();
+      if (!circuitB64) {
+        showError('Primero enciende la cámara o toma una foto del circuito.');
+        return;
+      }
+      state.isAnalyzing = true;
+      $('checkNowBtn').disabled = true;
+      try {
+        const title = $('practiceTitle').value.trim() || 'Práctica sin título';
+        const images = [];
+        if (state.diagramBase64) images.push({ mime_type: 'image/jpeg', data: state.diagramBase64 });
+        images.push({ mime_type: 'image/jpeg', data: circuitB64 });
+
+        const prompt = state.diagramBase64
+          ? `Práctica: "${title}". La primera imagen es el diagrama de referencia y la segunda es el circuito armado. Compara el circuito armado contra el diagrama.`
+          : `Práctica: "${title}". Revisa el circuito armado.`;
+
+        const rawText = await callAnalyzeApi(prompt, images);
+        const parsed = parseModelJson(rawText);
+        state.lastCircuitBase64 = circuitB64;
+        renderAnalysis(parsed);
+      } catch (err) {
+        showError(err.message || 'Error al analizar el circuito.');
+        if (err.isRateLimit) stopWatchLoop();
+      } finally {
+        state.isAnalyzing = false;
+        $('checkNowBtn').disabled = false;
+      }
+    }
+
+    function stopWatchLoop() {
+      if (state.watchTimer) { clearInterval(state.watchTimer); state.watchTimer = null; }
+      $('watchLiveBtn').textContent = '👁️ Vigilar en vivo';
+    }
+
+    async function toggleWatchLoop() {
+      if (state.watchTimer) { stopWatchLoop(); return; }
+      if (!state.stream) { await startCamera(); if (!state.stream) return; }
+      $('watchLiveBtn').textContent = '⏹️ Detener vigilancia';
+      await runCircuitReview();
+      if (!state.stream) { stopWatchLoop(); return; }
+      state.watchTimer = setInterval(async () => {
+        if (!state.stream || state.isAnalyzing) return;
+        await runCircuitReview();
+      }, 10000);
+    }
+
+    async function handleQuestion() {
+      const q = $('questionInput').value.trim();
+      if (!q) return;
+      showError('');
+      const qaBox = $('qaAnswer');
+      qaBox.textContent = 'Pensando...';
+      qaBox.classList.add('visible');
+      $('askBtn').disabled = true;
+      try {
+        const circuitB64 = getCurrentCircuitBase64() || state.lastCircuitBase64;
+        const images = [];
+        if (state.diagramBase64) images.push({ mime_type: 'image/jpeg', data: state.diagramBase64 });
+        if (circuitB64) images.push({ mime_type: 'image/jpeg', data: circuitB64 });
+        const title = $('practiceTitle').value.trim() || 'Práctica';
+        const lastCtx = state.lastAnalysis ? `Última revisión: ${JSON.stringify(state.lastAnalysis)}. ` : '';
+        const prompt = `${lastCtx}Práctica: "${title}". Responde en máximo 3 frases cortas y claras en español a esta duda del estudiante: ${q}`;
+        const rawText = await callAnalyzeApi(prompt, images);
+        let answerText = rawText;
+        try {
+          const obj = parseModelJson(rawText);
+          answerText = obj.respuesta || obj.resumen || rawText;
+        } catch {}
+        qaBox.textContent = String(answerText).trim();
+      } catch (err) {
+        qaBox.textContent = `No se pudo responder: ${err.message || 'error'}`;
+      } finally {
+        $('askBtn').disabled = false;
+      }
+    }
+
+    $('toggleCamBtn').addEventListener('click', () => state.stream ? stopCamera() : startCamera());
+    $('switchCamBtn').addEventListener('click', () => {
+      state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
+      if (state.stream) startCamera();
+    });
+    $('checkNowBtn').addEventListener('click', runCircuitReview);
+    $('watchLiveBtn').addEventListener('click', toggleWatchLoop);
+    $('takePhotoBtn').addEventListener('click', () => { stopCamera(); $('nativePhotoInput').click(); });
+
+    $('nativePhotoInput').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      showError('');
+      try {
+        const { dataUrl } = await fileToCompressedJpeg(file, 1280, 0.82);
+        const snap = $('snapPreview');
+        snap.src = dataUrl;
+        snap.classList.add('active');
+        $('camPlaceholder').style.display = 'none';
+        await runCircuitReview();
+      } catch (err) {
+        showError(err.message || 'No se pudo cargar la foto.');
+      }
+    });
+
+    $('diagramDrop').addEventListener('click', (e) => {
+      if (e.target.id === 'clearDiagramBtn') return;
+      $('diagramInput').click();
+    });
+
+    $('diagramInput').addEventListener('change', async (e) => {
+      const file = e.target.files?.[0];
+      e.target.value = '';
+      if (!file) return;
+      showError('');
+      try {
+        const { base64, dataUrl } = await fileToCompressedJpeg(file, 1280, 0.82);
+        state.diagramBase64 = base64;
+        const prev = $('diagramPreview');
+        prev.src = dataUrl;
+        prev.classList.add('visible');
+        $('diagramPrompt').style.display = 'none';
+        $('clearDiagramBtn').classList.add('visible');
+      } catch (err) {
+        showError(err.message || 'No se pudo cargar el diagrama.');
+      }
+    });
+
+    $('clearDiagramBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      state.diagramBase64 = null;
+      const prev = $('diagramPreview');
+      prev.src = '';
+      prev.classList.remove('visible');
+      $('diagramPrompt').style.display = 'block';
+      $('clearDiagramBtn').classList.remove('visible');
+    });
+
+    $('askBtn').addEventListener('click', handleQuestion);
+    $('questionInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') handleQuestion(); });
+    $('openCodeBtn').addEventListener('click', () => {
+      $('accessCodeInput').value = getAccessCode();
+      $('codeModal').classList.add('open');
+    });
+    $('closeCodeBtn').addEventListener('click', () => $('codeModal').classList.remove('open'));
+    $('saveCodeBtn').addEventListener('click', () => {
+      setAccessCode($('accessCodeInput').value);
+      $('codeModal').classList.remove('open');
+    });
+
+    document.addEventListener('visibilitychange', () => { if (document.hidden) stopCamera(); });
+    window.addEventListener('beforeunload', stopCamera);
+  </script>
+</body>
+</html>
