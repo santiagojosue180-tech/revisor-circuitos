@@ -1,6 +1,6 @@
 // api/analyze.js
 
-const DEFAULT_MODEL = "gemini-3.8-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 const MAX_RETRIES = 2;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,7 +18,7 @@ function isHighDemandError(status, message = "") {
 }
 
 function findImageString(input, depth = 0) {
-  if (!input || depth > 4) {
+  if (!input || depth > 5) {
     return null;
   }
 
@@ -113,11 +113,19 @@ function parseCleanJson(rawText) {
   return JSON.parse(cleaned);
 }
 
-async function callGeminiWithRetry({ apiKey, model, payload }) {
-  const endpoint = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){encodeURIComponent(
-    model
-  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+function buildGeminiUrl(model, apiKey) {
+  const cleanModel = encodeURIComponent(String(model || DEFAULT_MODEL).trim());
+  const cleanKey = encodeURIComponent(String(apiKey || "").trim());
+  return (
+    "[https://generativelanguage.googleapis.com/v1beta/models/](https://generativelanguage.googleapis.com/v1beta/models/)" +
+    cleanModel +
+    ":generateContent?key=" +
+    cleanKey
+  );
+}
 
+async function callGeminiWithRetry({ apiKey, model, payload }) {
+  const endpoint = buildGeminiUrl(model, apiKey);
   let lastError = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -134,7 +142,9 @@ async function callGeminiWithRetry({ apiKey, model, payload }) {
 
       if (!response.ok) {
         const apiMessage =
-          data?.error?.message || `Error HTTP ${response.status} al consultar Gemini.`;
+          data && data.error && data.error.message
+            ? data.error.message
+            : "Error HTTP " + response.status + " al consultar Gemini.";
 
         if (attempt < MAX_RETRIES && isHighDemandError(response.status, apiMessage)) {
           await sleep(1200 * (attempt + 1));
@@ -146,8 +156,12 @@ async function callGeminiWithRetry({ apiKey, model, payload }) {
         throw err;
       }
 
-      const candidate = data?.candidates?.[0];
-      const textPart = candidate?.content?.parts?.find((part) => typeof part?.text === "string")?.text;
+      const candidate = data && data.candidates ? data.candidates[0] : null;
+      const parts = candidate && candidate.content && Array.isArray(candidate.content.parts)
+        ? candidate.content.parts
+        : [];
+      const textPartObj = parts.find((part) => part && typeof part.text === "string");
+      const textPart = textPartObj ? textPartObj.text : "";
 
       if (!textPart) {
         throw new Error("La respuesta de Gemini no incluyó contenido de texto.");
@@ -155,7 +169,7 @@ async function callGeminiWithRetry({ apiKey, model, payload }) {
 
       return {
         parsedJson: parseCleanJson(textPart),
-        finishReason: candidate?.finishReason || "STOP",
+        finishReason: (candidate && candidate.finishReason) || "STOP",
       };
     } catch (error) {
       lastError = error;
