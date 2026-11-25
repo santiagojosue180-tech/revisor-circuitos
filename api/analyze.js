@@ -17,8 +17,65 @@ function isHighDemandError(status, message = "") {
   );
 }
 
-function extractBase64Image(rawImage) {
-  if (!rawImage || typeof rawImage !== "string") {
+function findImageString(input, depth = 0) {
+  if (!input || depth > 4) {
+    return null;
+  }
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (trimmed.startsWith("data:image/") || trimmed.length > 200) {
+      return trimmed;
+    }
+    return null;
+  }
+
+  if (Array.isArray(input)) {
+    for (const item of input) {
+      const found = findImageString(item, depth + 1);
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  }
+
+  if (typeof input === "object") {
+    const preferredKeys = [
+      "image",
+      "imageBase64",
+      "base64",
+      "photo",
+      "frame",
+      "dataUrl",
+      "img",
+      "src",
+      "capture",
+    ];
+
+    for (const key of preferredKeys) {
+      if (Object.prototype.hasOwnProperty.call(input, key)) {
+        const found = findImageString(input[key], depth + 1);
+        if (found) {
+          return found;
+        }
+      }
+    }
+
+    for (const value of Object.values(input)) {
+      const found = findImageString(value, depth + 1);
+      if (found) {
+        return found;
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractBase64Image(body) {
+  const rawImage = findImageString(body);
+  if (!rawImage) {
     return null;
   }
 
@@ -26,13 +83,13 @@ function extractBase64Image(rawImage) {
   if (dataUrlMatch) {
     return {
       mimeType: dataUrlMatch[1],
-      data: dataUrlMatch[2].trim(),
+      data: dataUrlMatch[2].replace(/\s+/g, ""),
     };
   }
 
   return {
     mimeType: "image/jpeg",
-    data: rawImage.trim(),
+    data: rawImage.replace(/\s+/g, ""),
   };
 }
 
@@ -139,11 +196,13 @@ export default async function handler(req, res) {
 
   try {
     const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
-    const imageInput = body.image || body.imageBase64 || body.photo;
-    const image = extractBase64Image(imageInput);
+    const image = extractBase64Image(body);
 
     if (!image || !image.data) {
-      return res.status(400).json({ error: "No se recibió ninguna imagen válida del circuito." });
+      return res.status(400).json({
+        error: "No se recibió ninguna imagen válida del circuito.",
+        receivedKeys: Object.keys(body || {}),
+      });
     }
 
     const prompt = [
@@ -192,9 +251,10 @@ export default async function handler(req, res) {
       analysis: parsedJson,
     });
   } catch (error) {
-    const status = error.statusCode && error.statusCode >= 400 && error.statusCode < 600
-      ? error.statusCode
-      : 500;
+    const status =
+      error.statusCode && error.statusCode >= 400 && error.statusCode < 600
+        ? error.statusCode
+        : 500;
 
     return res.status(status).json({
       ok: false,
