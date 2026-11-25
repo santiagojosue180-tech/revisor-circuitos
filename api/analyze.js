@@ -1,167 +1,205 @@
-const rateMap = new Map();
-const MAX_PER_MIN = 12;
-const MAX_IMAGES = 3;
-const MAX_BASE64_BYTES = 4 * 1024 * 1024;
+// api/analyze.js
 
-const SYSTEM_INSTRUCTION =
-  'Actúa como tutor de electrónica para estudiantes de ingeniería. Recibe la imagen del circuito armado (y el diagrama como primera imagen, si existe) y el título. Compara lo armado con lo que debería ser. Revisa: alimentación y tierra común, polaridad (diodos, capacitores electrolíticos, LEDs), pines de los chips, valores y posición de resistencias, cables sueltos o en filas equivocadas de la protoboard, cortocircuitos y componentes faltantes. Responde SOLO con un JSON válido, sin texto extra: {"estado":"ok"|"fallas"|"dudoso","resumen":"máx 12 palabras","fallas":[{"que":"máx 10 palabras","donde":"ubicación corta","arreglo":"máx 15 palabras"}],"bien":["máx 3 aciertos cortos"],"foto":"frase para mejorar la imagen o cadena vacía"} Frases cortas y sin tecnicismos innecesarios. Si no ve algo con claridad debe usar estado "dudoso" y nunca inventar ni afirmar que algo está bien conectado si no lo ve claramente. Todo en español.';
+const DEFAULT_MODEL = "gemini-3.8-flash";
+const MAX_RETRIES = 2;
 
-function getClientIp(req) {
-  const xff = req.headers['x-forwarded-for'];
-  if (typeof xff === 'string' && xff.length > 0) {
-    return xff.split(',')[0].trim();
-  }
-  return req.socket?.remoteAddress || 'unknown';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function isHighDemandError(status, message = "") {
+  const text = String(message).toLowerCase();
+  return (
+    status === 503 ||
+    status === 429 ||
+    text.includes("high demand") ||
+    text.includes("overloaded") ||
+    text.includes("unavailable") ||
+    text.includes("try again later")
+  );
 }
 
-function checkRateLimit(ip) {
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-  const entry = rateMap.get(ip) || { count: 0, resetAt: now + windowMs };
-  if (now > entry.resetAt) {
-    entry.count = 0;
-    entry.resetAt = now + windowMs;
+function extractBase64Image(rawImage) {
+  if (!rawImage || typeof rawImage !== "string") {
+    return null;
   }
-  entry.count += 1;
-  rateMap.set(ip, entry);
-  return entry.count <= MAX_PER_MIN;
+
+  const dataUrlMatch = rawImage.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (dataUrlMatch) {
+    return {
+      mimeType: dataUrlMatch[1],
+      data: dataUrlMatch[2].trim(),
+    };
+  }
+
+  return {
+    mimeType: "image/jpeg",
+    data: rawImage.trim(),
+  };
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Método no permitido. Usa POST.' });
+function parseCleanJson(rawText) {
+  if (!rawText || typeof rawText !== "string") {
+    throw new Error("El modelo devolvió una respuesta vacía.");
   }
 
-  const accessCode = process.env.ACCESS_CODE;
-  if (accessCode && accessCode.trim() !== '') {
-    const provided = String(req.headers['x-code'] || '').trim();
-    if (provided !== accessCode.trim()) {
-      return res.status(401).json({ error: 'Código de acceso inválido.' });
+  let cleaned = rawText
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  const firstBrace = cleaned.indexOf("{");
+  const lastBrace = cleaned.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  return JSON.parse(cleaned);
+}
+
+async function callGeminiWithRetry({ apiKey, model, payload }) {
+  const endpoint = `[https://generativelanguage.googleapis.com/v1beta/models/$](https://generativelanguage.googleapis.com/v1beta/models/$){encodeURIComponent(
+    model
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        const apiMessage =
+          data?.error?.message || `Error HTTP ${response.status} al consultar Gemini.`;
+
+        if (attempt < MAX_RETRIES && isHighDemandError(response.status, apiMessage)) {
+          await sleep(1200 * (attempt + 1));
+          continue;
+        }
+
+        const err = new Error(apiMessage);
+        err.statusCode = response.status === 503 || response.status === 429 ? 503 : response.status;
+        throw err;
+      }
+
+      const candidate = data?.candidates?.[0];
+      const textPart = candidate?.content?.parts?.find((part) => typeof part?.text === "string")?.text;
+
+      if (!textPart) {
+        throw new Error("La respuesta de Gemini no incluyó contenido de texto.");
+      }
+
+      return {
+        parsedJson: parseCleanJson(textPart),
+        finishReason: candidate?.finishReason || "STOP",
+      };
+    } catch (error) {
+      lastError = error;
+
+      if (error instanceof SyntaxError) {
+        if (attempt < MAX_RETRIES) {
+          await sleep(800 * (attempt + 1));
+          continue;
+        }
+        const parseErr = new Error("La respuesta JSON llegó incompleta o mal formada.");
+        parseErr.statusCode = 502;
+        throw parseErr;
+      }
+
+      if (attempt < MAX_RETRIES && isHighDemandError(error.statusCode, error.message)) {
+        await sleep(1200 * (attempt + 1));
+        continue;
+      }
+
+      throw error;
     }
   }
 
-  const ip = getClientIp(req);
-  if (!checkRateLimit(ip)) {
-    return res.status(429).json({
-      error: 'Límite de 12 solicitudes por minuto alcanzado. Espera un momento.'
-    });
+  throw lastError || new Error("No se pudo completar el análisis del circuito.");
+}
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Método no permitido. Usa POST." });
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    return res.status(500).json({
-      error: 'Falta configurar GEMINI_API_KEY en el servidor.'
-    });
+    return res.status(500).json({ error: "Falta configurar GEMINI_API_KEY en Vercel." });
   }
 
-  let body = req.body;
-  if (typeof body === 'string') {
-    try {
-      body = JSON.parse(body);
-    } catch {
-      return res.status(400).json({ error: 'JSON de solicitud inválido.' });
-    }
-  }
-
-  const prompt = typeof body?.prompt === 'string' ? body.prompt.trim() : '';
-  const images = Array.isArray(body?.images) ? body.images : [];
-
-  if (!prompt && images.length === 0) {
-    return res.status(400).json({ error: 'Envía al menos una imagen o una pregunta.' });
-  }
-
-  if (images.length > MAX_IMAGES) {
-    return res.status(400).json({
-      error: `Máximo ${MAX_IMAGES} imágenes por solicitud.`
-    });
-  }
-
-  const parts = [];
-  for (const img of images) {
-    const base64Data = typeof img === 'string' ? img : img?.data;
-    const mimeType =
-      (typeof img === 'object' && img?.mime_type) || 'image/jpeg';
-
-    if (!base64Data || typeof base64Data !== 'string') {
-      return res.status(400).json({ error: 'Formato de imagen inválido.' });
-    }
-
-    const cleanBase64 = base64Data.includes(',')
-      ? base64Data.split(',')[1]
-      : base64Data;
-
-    if (cleanBase64.length > MAX_BASE64_BYTES) {
-      return res.status(413).json({
-        error: 'Una de las imágenes supera el tamaño máximo (~3 MB).'
-      });
-    }
-
-    parts.push({
-      inline_data: {
-        mime_type: mimeType,
-        data: cleanBase64
-      }
-    });
-  }
-
-  parts.push({
-    text: prompt || 'Revisa este circuito armado.'
-  });
-
-  const model = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
-
-  const payload = {
-    systemInstruction: {
-      parts: [{ text: SYSTEM_INSTRUCTION }]
-    },
-    contents: [
-      {
-        role: 'user',
-        parts
-      }
-    ],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      maxOutputTokens: 900
-    }
-  };
+  const model = (process.env.GEMINI_MODEL || DEFAULT_MODEL).trim();
 
   try {
-    const geminiRes = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+    const imageInput = body.image || body.imageBase64 || body.photo;
+    const image = extractBase64Image(imageInput);
+
+    if (!image || !image.data) {
+      return res.status(400).json({ error: "No se recibió ninguna imagen válida del circuito." });
+    }
+
+    const prompt = [
+      "Analiza este circuito electrónico/eléctrico (protoboard, PCB, cableado o diagrama).",
+      "Responde ÚNICAMENTE con un objeto JSON válido, breve y conciso, sin texto extra:",
+      "{",
+      '  "resumen": "descripción corta del montaje",',
+      '  "componentes": ["lista de componentes visibles"],',
+      '  "posibles_fallas": ["errores de conexión, cortos o riesgos detectados"],',
+      '  "recomendaciones": ["pasos breves para corregir o validar"]',
+      "}",
+    ].join("\n");
+
+    const payload = {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: image.mimeType,
+                data: image.data,
+              },
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 1024,
+        responseMimeType: "application/json",
       },
-      body: JSON.stringify(payload)
+    };
+
+    const { parsedJson, finishReason } = await callGeminiWithRetry({
+      apiKey,
+      model,
+      payload,
     });
 
-    const data = await geminiRes.json().catch(() => ({}));
+    return res.status(200).json({
+      ok: true,
+      model,
+      finishReason,
+      analysis: parsedJson,
+    });
+  } catch (error) {
+    const status = error.statusCode && error.statusCode >= 400 && error.statusCode < 600
+      ? error.statusCode
+      : 500;
 
-    if (!geminiRes.ok) {
-      const status = geminiRes.status;
-      const msg =
-        data?.error?.message ||
-        (status === 429
-          ? 'Límite de cuota de Gemini alcanzado (HTTP 429).'
-          : 'Error al consultar la API de Gemini.');
-      return res.status(status).json({ error: msg });
-    }
-
-    const text =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    if (!text) {
-      return res.status(502).json({
-        error: 'Gemini no devolvió contenido de análisis.'
-      });
-    }
-
-    return res.status(200).json({ text });
-  } catch (err) {
-    return res.status(500).json({
-      error: `Fallo de red hacia Gemini: ${err.message || 'error desconocido'}`
+    return res.status(status).json({
+      ok: false,
+      model,
+      error: error.message || "Error interno al analizar el circuito.",
     });
   }
 }
